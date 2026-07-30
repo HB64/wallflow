@@ -36,8 +36,17 @@ jobs:
       - name: Decode keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
 
-      - name: Debug keystore checksum
-        run: sha256sum app/release.keystore
+      - name: Verify keystore checksum
+        run: |
+          ACTUAL=$(sha256sum app/release.keystore | cut -d' ' -f1)
+          EXPECTED="297d0491eeb53fc866a2485567c432ed3fb0925efa58634250683cd1aa65664e"
+          echo "Actual:   $ACTUAL"
+          echo "Expected: $EXPECTED"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Keystore checksum mismatch - de KEYSTORE_BASE64 secret komt niet overeen met het bestand. Opnieuw plakken zonder extra spaties/regeleinden."
+            exit 1
+          fi
+          echo "Keystore checksum OK"
 
       - name: Build release APK
         env:
