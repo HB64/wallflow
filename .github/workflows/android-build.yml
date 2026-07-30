@@ -1,5 +1,5 @@
 
-name: Build and publish Android APK test
+name: Build and publish Android APK
 
 on:
   push:
