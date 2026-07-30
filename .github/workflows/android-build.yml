@@ -1,0 +1,66 @@
+name: Build and publish Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "android-app/**"
+      - ".github/workflows/android-build.yml"
+    tags:
+      - "v*"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        working-directory: android-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
+
+      - name: Build release APK
+        env:
+          KEYSTORE_PATH: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      # Vriendelijkere bestandsnaam dan het standaard "app-release.apk".
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/WallFlowScreensaver.apk
+
+      - name: Upload APK as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wallflow-screensaver-apk
+          path: android-app/app/build/outputs/apk/release/WallFlowScreensaver.apk
+
+      # Alleen bij een versietag (bijv. v1.0.0): maakt automatisch een
+      # GitHub Release aan (als die nog niet bestaat) met de APK erbij,
+      # zodat iemand hem gewoon kan downloaden zonder GitHub Actions te
+      # hoeven begrijpen.
+      - name: Attach APK to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android-app/app/build/outputs/apk/release/WallFlowScreensaver.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
