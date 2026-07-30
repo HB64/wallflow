@@ -15,14 +15,16 @@ android {
         versionName = "1.0"
     }
 
-    signingConfigs {
+signingConfigs {
         create("release") {
             val keystorePath = System.getenv("KEYSTORE_PATH")
             if (keystorePath != null) {
                 storeFile = file(keystorePath)
+                // PKCS12-keystores (de standaard sinds recente Java-versies) hebben
+                // maar één wachtwoord voor zowel de store als de key zelf.
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("KEY_ALIAS")
-                keyPassword = System.getenv("KEY_PASSWORD")
+                keyPassword = System.getenv("KEYSTORE_PASSWORD")
             }
         }
     }
