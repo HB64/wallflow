@@ -53,10 +53,6 @@ jobs:
           name: wallflow-screensaver-apk
           path: android-app/app/build/outputs/apk/release/WallFlowScreensaver.apk
 
-      # Alleen bij een versietag (bijv. v1.0.0): maakt automatisch een
-      # GitHub Release aan (als die nog niet bestaat) met de APK erbij,
-      # zodat iemand hem gewoon kan downloaden zonder GitHub Actions te
-      # hoeven begrijpen.
       - name: Attach APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
