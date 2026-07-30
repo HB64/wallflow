@@ -1,3 +1,4 @@
+
 name: Build and publish Android APK
 
 on:
@@ -34,6 +35,9 @@ jobs:
 
       - name: Decode keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
+
+      - name: Debug keystore checksum
+        run: sha256sum app/release.keystore
 
       - name: Build release APK
         env:
