@@ -1,0 +1,26 @@
+# Copy this file to config.yaml (in the /config volume) and fill in your own
+# Wallhaven API key. See https://wallhaven.cc/settings/account for the key.
+
+wallhaven:
+  api_key: "your-wallhaven-api-key"
+
+wallflow:
+  # Total number of wallpapers to keep on disk at any time.
+  max_wallpapers: 100
+
+  # A wallpaper is never rotated before it is at least this many days old,
+  # regardless of whether it has been "seen" (atime) yet.
+  min_dwell_days: 3
+
+  # Safety net: force rotation after this many days even if atime-based
+  # "seen" detection isn't working reliably on your network share.
+  max_retention_days: 30
+
+  # How often (in hours) to run the rotation/replenish cycle. Kept low to
+  # avoid unnecessary network load against the Wallhaven API.
+  check_interval_hours: 24
+
+  # Port the built-in HTTP server (wallpaper list/serve/delete + /ui web UI)
+  # listens on inside the container. Map this to a host port in your
+  # docker-compose.yml, e.g. "8180:8080".
+  http_port: 8080

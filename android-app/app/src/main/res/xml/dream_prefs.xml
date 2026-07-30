@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory android:title="@string/pref_category_connection">
+
+        <EditTextPreference
+            android:key="server_url"
+            android:title="@string/pref_server_title"
+            android:dialogTitle="@string/pref_server_title"
+            android:dialogMessage="@string/pref_server_summary"
+            android:defaultValue=""
+            app:useSimpleSummaryProvider="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_category_manage">
+
+        <Preference
+            android:key="open_tags"
+            android:title="@string/pref_tags_title"
+            android:summary="@string/pref_tags_summary" />
+
+        <Preference
+            android:key="open_gallery"
+            android:title="@string/pref_gallery_title"
+            android:summary="@string/pref_gallery_summary" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_category_system">
+
+        <Preference
+            android:key="open_screensaver_settings"
+            android:title="@string/pref_screensaver_settings_title"
+            android:summary="@string/pref_screensaver_settings_summary" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WallFlow Screensaver</string>
+
+    <!-- Settings screen -->
+    <string name="pref_category_connection">Connection</string>
+    <string name="pref_server_title">WallFlow server</string>
+    <string name="pref_server_summary">Address of the WallFlow server, e.g. 192.168.178.75:8180</string>
+
+    <string name="pref_category_manage">Manage</string>
+    <string name="pref_tags_title">Manage tags</string>
+    <string name="pref_tags_summary">View, add or remove include/exclude tags</string>
+    <string name="pref_gallery_title">Manage wallpapers</string>
+    <string name="pref_gallery_summary">View and delete downloaded wallpapers</string>
+
+    <string name="pref_category_system">System</string>
+    <string name="pref_screensaver_settings_title">Open screensaver settings</string>
+    <string name="pref_screensaver_settings_summary">Go directly to the Android screensaver settings</string>
+    <string name="error_screensaver_settings_unavailable">Could not open screensaver settings on this device</string>
+
+    <!-- Shared labels -->
+    <string name="label_include">Include</string>
+    <string name="label_exclude">Exclude</string>
+    <string name="hint_new_include_tag">new include tag</string>
+    <string name="hint_new_exclude_tag">new exclude tag</string>
+    <string name="action_add">Add</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_cancel">Cancel</string>
+
+    <!-- Tags screen -->
+    <string name="msg_set_server_first">Please set a server first in Settings</string>
+    <string name="msg_tags_load_failed">Failed to load tags: %1$s</string>
+    <string name="msg_tag_add_failed">Failed to add tag: %1$s</string>
+    <string name="msg_tag_added">Tag added: %1$s</string>
+    <string name="msg_tag_remove_failed">Failed to remove tag: %1$s</string>
+    <string name="msg_tag_removed">Tag removed: %1$s</string>
+
+    <!-- Gallery screen -->
+    <string name="msg_wallpapers_load_failed">Failed to load wallpapers: %1$s</string>
+    <string name="msg_wallpaper_deleted">Deleted: %1$s</string>
+    <string name="msg_wallpaper_delete_failed">Failed to delete: %1$s</string>
+    <string name="dialog_delete_title">Delete</string>
+    <string name="dialog_delete_message">Are you sure you want to delete \"%1$s\"?</string>
+</resources>

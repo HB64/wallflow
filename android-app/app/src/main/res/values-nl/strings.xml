@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WallFlow Screensaver</string>
+
+    <!-- Instellingenscherm -->
+    <string name="pref_category_connection">Verbinding</string>
+    <string name="pref_server_title">WallFlow-server</string>
+    <string name="pref_server_summary">Adres van de WallFlow-server, bijv. 192.168.178.75:8180</string>
+
+    <string name="pref_category_manage">Beheer</string>
+    <string name="pref_tags_title">Tags beheren</string>
+    <string name="pref_tags_summary">Include/exclude-tags bekijken, toevoegen of verwijderen</string>
+    <string name="pref_gallery_title">Wallpapers beheren</string>
+    <string name="pref_gallery_summary">Bekijk en verwijder gedownloade wallpapers</string>
+
+    <string name="pref_category_system">Systeem</string>
+    <string name="pref_screensaver_settings_title">Screensaver-instellingen openen</string>
+    <string name="pref_screensaver_settings_summary">Ga direct naar de Android screensaver-instellingen</string>
+    <string name="error_screensaver_settings_unavailable">Kon screensaver-instellingen niet openen op dit apparaat</string>
+
+    <!-- Gedeelde labels -->
+    <string name="label_include">Include</string>
+    <string name="label_exclude">Exclude</string>
+    <string name="hint_new_include_tag">nieuwe include-tag</string>
+    <string name="hint_new_exclude_tag">nieuwe exclude-tag</string>
+    <string name="action_add">Toevoegen</string>
+    <string name="action_remove">Verwijderen</string>
+    <string name="action_cancel">Annuleren</string>
+
+    <!-- Tags-scherm -->
+    <string name="msg_set_server_first">Stel eerst een server in bij Instellingen</string>
+    <string name="msg_tags_load_failed">Ophalen tags mislukt: %1$s</string>
+    <string name="msg_tag_add_failed">Toevoegen mislukt: %1$s</string>
+    <string name="msg_tag_added">Tag toegevoegd: %1$s</string>
+    <string name="msg_tag_remove_failed">Verwijderen mislukt: %1$s</string>
+    <string name="msg_tag_removed">Tag verwijderd: %1$s</string>
+
+    <!-- Galerijscherm -->
+    <string name="msg_wallpapers_load_failed">Ophalen wallpapers mislukt: %1$s</string>
+    <string name="msg_wallpaper_deleted">Verwijderd: %1$s</string>
+    <string name="msg_wallpaper_delete_failed">Verwijderen mislukt: %1$s</string>
+    <string name="dialog_delete_title">Verwijderen</string>
+    <string name="dialog_delete_message">Weet je zeker dat je \"%1$s\" wilt verwijderen?</string>
+</resources>

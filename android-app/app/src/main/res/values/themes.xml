@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.WallFlowScreensaver" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/wallflow_purple</item>
+        <item name="colorPrimaryDark">@color/wallflow_purple</item>
+    </style>
+</resources>

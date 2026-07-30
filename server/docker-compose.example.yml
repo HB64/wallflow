@@ -1,0 +1,28 @@
+# Copy this file to docker-compose.yml (place config.example.yaml, as
+# config.yaml, in the ./config folder below), and start with
+# `docker compose up -d`. No build step, no local source code needed - this
+# pulls the ready-made image straight from GitHub.
+
+services:
+  wallflow:
+    image: ghcr.io/hb64/wallflow:latest
+    container_name: wallflow
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      - ./config:/config
+      - ./database:/database
+      - ./logs:/logs
+      - ./wallpapers:/wallpapers
+
+    environment:
+      - TZ=Europe/Amsterdam
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "print('healthy')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
