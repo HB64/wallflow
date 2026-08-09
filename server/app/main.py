@@ -7,6 +7,7 @@ import schedule
 
 import db
 import httpserver
+import settings_store
 from wallhaven import WallhavenClient
 
 CONFIG_FILE = "/config/config.yaml"
@@ -153,13 +154,18 @@ def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: in
     return downloaded
 
 
-def run_cycle(client: WallhavenClient, conn, settings: dict):
+def run_cycle(client: WallhavenClient, conn, settings: dict, rotation_defaults: dict):
     log("Rotatiecyclus gestart.")
+
+    # Bij elke cyclus vers inlezen (i.p.v. de waarden van bij het opstarten),
+    # zodat een wijziging via /ui direct bij de eerstvolgende cyclus actief
+    # is, zonder herstart van de container.
+    rotation = settings_store.get_settings(rotation_defaults)
 
     rotatable = check_rotation(
         conn,
-        min_dwell_days=settings["min_dwell_days"],
-        max_retention_days=settings["max_retention_days"],
+        min_dwell_days=rotation["min_dwell_days"],
+        max_retention_days=rotation["max_retention_days"],
     )
 
     for wallhaven_id in rotatable:
@@ -170,13 +176,16 @@ def run_cycle(client: WallhavenClient, conn, settings: dict):
     if needed > 0:
         fill_wallpapers(client, conn, needed)
 
-    log(f"Cyclus klaar. Actieve wallpapers: {db.count_active(conn)}/{settings['max_wallpapers']}")
+    log(
+        f"Cyclus klaar. Actieve wallpapers: {db.count_active(conn)}/{settings['max_wallpapers']} "
+        f"(min_dwell={rotation['min_dwell_days']}d, max_retention={rotation['max_retention_days']}d)"
+    )
 
 
-def scheduled_job(client: WallhavenClient, conn, settings: dict):
+def scheduled_job(client: WallhavenClient, conn, settings: dict, rotation_defaults: dict):
     """Wrapper rond run_cycle die de scheduler blijft draaien, ook na een fout."""
     try:
-        run_cycle(client, conn, settings)
+        run_cycle(client, conn, settings, rotation_defaults)
     except Exception as e:
         log(f"Onverwachte fout tijdens cyclus: {e}")
 
@@ -194,12 +203,22 @@ if __name__ == "__main__":
         "http_port": wallflow_config.get("http_port", DEFAULT_HTTP_PORT),
     }
 
+    # Startwaarden voor min_dwell_days/max_retention_days komen uit
+    # config.yaml. Ze worden meteen weggeschreven naar settings.json (als dat
+    # nog niet bestaat), zodat het gedrag bij deze upgrade niet verandert -
+    # pas een wijziging via /ui wijkt daarna af van config.yaml.
+    rotation_defaults = {
+        "min_dwell_days": settings["min_dwell_days"],
+        "max_retention_days": settings["max_retention_days"],
+    }
+    settings_store.get_settings(rotation_defaults)
+
     log("========================================")
     log("WallFlow starting...")
     log("Configuration loaded.")
 
     WALLPAPER_DIR.mkdir(parents=True, exist_ok=True)
-    httpserver.start_server(WALLPAPER_DIR, port=settings["http_port"])
+    httpserver.start_server(WALLPAPER_DIR, port=settings["http_port"], rotation_defaults=rotation_defaults)
     log(f"HTTP-server gestart op poort {settings['http_port']} (/wallpapers).")
 
     client = WallhavenClient(
@@ -217,10 +236,10 @@ if __name__ == "__main__":
         log(f"Actief volgens database: {db.count_active(conn)}/{settings['max_wallpapers']}")
 
         # Direct 1 cyclus bij opstarten, daarna periodiek.
-        scheduled_job(client, conn, settings)
+        scheduled_job(client, conn, settings, rotation_defaults)
 
         schedule.every(settings["check_interval_hours"]).hours.do(
-            scheduled_job, client, conn, settings
+            scheduled_job, client, conn, settings, rotation_defaults
         )
 
         log(f"Volgende checks elke {settings['check_interval_hours']} uur.")
