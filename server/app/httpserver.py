@@ -21,6 +21,10 @@ Endpoints:
   Wijzigingen zijn direct actief bij de eerstvolgende zoekopdracht, geen
   rebuild of herstart van de container nodig.
 
+- GET    /settings  -> {"min_dwell_days": N, "max_retention_days": M}
+- POST   /settings  -> body met 1 of beide velden, werkt bij. Direct actief
+  bij de eerstvolgende rotatiecyclus, geen herstart nodig.
+
 - GET    /ui  -> eenvoudige webpagina om tags te beheren en wallpapers te
   bekijken/verwijderen, rechtstreeks vanuit de browser (geen curl nodig).
 - GET    /    -> landingspagina met een link naar /ui.
@@ -37,6 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
+import settings_store
 import tags_store
 
 # Verbindingen die een client voortijdig afbreekt (browser-tab gesloten,
@@ -78,6 +83,9 @@ UI_HTML = """<!DOCTYPE html>
   .add-row { display:flex; gap:6px; flex-wrap:wrap; }
   .add-row input { flex:1 1 140px; min-width:0; padding:8px; font-size:16px; border-radius:6px; border:1px solid #555; background:#222; color:#eee; }
   .add-row button { padding:8px 14px; font-size:15px; border-radius:6px; border:none; background:#4a90d9; color:#fff; cursor:pointer; white-space:nowrap; }
+  .settings-row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-end; margin-bottom:20px; }
+  .settings-field { display:flex; flex-direction:column; gap:4px; font-size:13px; color:#aaa; }
+  .settings-field input { width:100px; padding:8px; font-size:16px; border-radius:6px; border:1px solid #555; background:#222; color:#eee; }
   .gallery { display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:16px; margin-top:16px; }
   .tile { background:#25252b; border-radius:8px; overflow:hidden; }
   .tile img { width:100%; height:150px; object-fit:cover; display:block; }
@@ -114,6 +122,19 @@ UI_HTML = """<!DOCTYPE html>
       <button onclick="addTag('exclude')">Toevoegen</button>
     </div>
   </div>
+</div>
+
+<h2>Rotatie</h2>
+<div class="settings-row">
+  <div class="settings-field">
+    <label for="min-dwell-input">Min. bewaartijd (dagen)</label>
+    <input type="number" id="min-dwell-input" min="1" max="90">
+  </div>
+  <div class="settings-field">
+    <label for="max-retention-input">Max. bewaartijd (dagen)</label>
+    <input type="number" id="max-retention-input" min="1" max="365">
+  </div>
+  <button onclick="saveSettings()">Opslaan</button>
 </div>
 
 <h2>Wallpapers</h2>
@@ -183,6 +204,32 @@ function removeTag(kind, tag) {
     }).catch(function(e) { showStatus(e.message, true); });
 }
 
+function loadSettings() {
+  fetch('/settings').then(function(r) { return r.json(); }).then(function(data) {
+    document.getElementById('min-dwell-input').value = data.min_dwell_days;
+    document.getElementById('max-retention-input').value = data.max_retention_days;
+  });
+}
+
+function saveSettings() {
+  var payload = {
+    min_dwell_days: parseInt(document.getElementById('min-dwell-input').value, 10),
+    max_retention_days: parseInt(document.getElementById('max-retention-input').value, 10)
+  };
+  fetch('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(r) {
+    if (!r.ok) { throw new Error('Opslaan mislukt (status ' + r.status + ')'); }
+    return r.json();
+  }).then(function(data) {
+    document.getElementById('min-dwell-input').value = data.min_dwell_days;
+    document.getElementById('max-retention-input').value = data.max_retention_days;
+    showStatus('Instellingen opgeslagen', false);
+  }).catch(function(e) { showStatus(e.message, true); });
+}
+
 function loadGallery() {
   fetch('/wallpapers').then(function(r) { return r.json(); }).then(function(data) {
     var gallery = document.getElementById('gallery');
@@ -226,6 +273,7 @@ function deleteWallpaper(name, tile) {
 }
 
 loadTags();
+loadSettings();
 loadGallery();
 </script>
 </body>
@@ -267,7 +315,7 @@ __PREVIEW_BLOCK__
 """
 
 
-def make_handler(wallpaper_dir: Path):
+def make_handler(wallpaper_dir: Path, rotation_defaults: dict):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
             pass  # geen aparte requestlogs, wallflow.log blijft leidend
@@ -391,6 +439,25 @@ def make_handler(wallpaper_dir: Path):
             include_tags, exclude_tags = tags_store.get_tags()
             self._send_json(200, {"include": include_tags, "exclude": exclude_tags})
 
+        def _get_settings(self):
+            data = settings_store.get_settings(rotation_defaults)
+            self._send_json(200, data)
+
+        def _update_settings(self):
+            try:
+                payload = self._read_json_body()
+            except (ValueError, UnicodeDecodeError):
+                self.send_error(400, "Ongeldige JSON-body")
+                return
+
+            try:
+                data = settings_store.update_settings(payload, rotation_defaults)
+            except ValueError as e:
+                self.send_error(400, str(e))
+                return
+
+            self._send_json(200, data)
+
         def _serve_ui(self):
             html = UI_HTML.replace("__FAVICON__", FAVICON_DATA_URI)
             body = html.encode("utf-8")
@@ -450,6 +517,10 @@ def make_handler(wallpaper_dir: Path):
                 self._get_tags()
                 return
 
+            if path == "/settings":
+                self._get_settings()
+                return
+
             self.send_error(404, "Niet gevonden")
 
         def do_POST(self):
@@ -458,6 +529,10 @@ def make_handler(wallpaper_dir: Path):
             if path in ("/tags/include", "/tags/exclude"):
                 kind = path.rsplit("/", 1)[-1]
                 self._add_tag(kind)
+                return
+
+            if path == "/settings":
+                self._update_settings()
                 return
 
             self.send_error(404, "Niet gevonden")
@@ -498,12 +573,12 @@ class _QuietThreadingHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def start_server(wallpaper_dir: Path, port: int = 8080) -> ThreadingHTTPServer:
+def start_server(wallpaper_dir: Path, port: int, rotation_defaults: dict) -> ThreadingHTTPServer:
     """
     Start de server in een achtergrond-thread (non-blocking).
     Retourneert het server-object (voor eventuele shutdown).
     """
-    handler_cls = make_handler(wallpaper_dir)
+    handler_cls = make_handler(wallpaper_dir, rotation_defaults)
     server = _QuietThreadingHTTPServer(("0.0.0.0", port), handler_cls)
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
