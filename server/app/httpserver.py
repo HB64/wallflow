@@ -21,9 +21,10 @@ Endpoints:
   Wijzigingen zijn direct actief bij de eerstvolgende zoekopdracht, geen
   rebuild of herstart van de container nodig.
 
-- GET    /settings  -> {"min_dwell_days": N, "max_retention_days": M}
-- POST   /settings  -> body met 1 of beide velden, werkt bij. Direct actief
-  bij de eerstvolgende rotatiecyclus, geen herstart nodig.
+- GET    /settings  -> {"min_dwell_days": N, "max_retention_days": M,
+  "require_trusted_source": bool}
+- POST   /settings  -> body met 1 of meer velden, werkt bij. Direct actief
+  bij de eerstvolgende rotatiecyclus/zoekopdracht, geen herstart nodig.
 
 - GET    /ui  -> eenvoudige webpagina om tags te beheren en wallpapers te
   bekijken/verwijderen, rechtstreeks vanuit de browser (geen curl nodig).
@@ -86,6 +87,9 @@ UI_HTML = """<!DOCTYPE html>
   .settings-row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-end; margin-bottom:20px; }
   .settings-field { display:flex; flex-direction:column; gap:4px; font-size:13px; color:#aaa; }
   .settings-field input { width:100px; padding:8px; font-size:16px; border-radius:6px; border:1px solid #555; background:#222; color:#eee; }
+  .settings-checkbox { justify-content:flex-end; }
+  .settings-checkbox label { flex-direction:row; align-items:center; gap:8px; font-size:14px; color:#ccc; cursor:pointer; }
+  .settings-checkbox input { width:auto; }
   .gallery { display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:16px; margin-top:16px; }
   .tile { background:#25252b; border-radius:8px; overflow:hidden; }
   .tile img { width:100%; height:150px; object-fit:cover; display:block; }
@@ -133,6 +137,12 @@ UI_HTML = """<!DOCTYPE html>
   <div class="settings-field">
     <label for="max-retention-input">Max. bewaartijd (dagen)</label>
     <input type="number" id="max-retention-input" min="1" max="365">
+  </div>
+  <div class="settings-field settings-checkbox">
+    <label for="trusted-source-input">
+      <input type="checkbox" id="trusted-source-input">
+      Alleen vertrouwde fotografiebronnen (experimenteel)
+    </label>
   </div>
   <button onclick="saveSettings()">Opslaan</button>
 </div>
@@ -208,13 +218,15 @@ function loadSettings() {
   fetch('/settings').then(function(r) { return r.json(); }).then(function(data) {
     document.getElementById('min-dwell-input').value = data.min_dwell_days;
     document.getElementById('max-retention-input').value = data.max_retention_days;
+    document.getElementById('trusted-source-input').checked = !!data.require_trusted_source;
   });
 }
 
 function saveSettings() {
   var payload = {
     min_dwell_days: parseInt(document.getElementById('min-dwell-input').value, 10),
-    max_retention_days: parseInt(document.getElementById('max-retention-input').value, 10)
+    max_retention_days: parseInt(document.getElementById('max-retention-input').value, 10),
+    require_trusted_source: document.getElementById('trusted-source-input').checked
   };
   fetch('/settings', {
     method: 'POST',
@@ -226,6 +238,7 @@ function saveSettings() {
   }).then(function(data) {
     document.getElementById('min-dwell-input').value = data.min_dwell_days;
     document.getElementById('max-retention-input').value = data.max_retention_days;
+    document.getElementById('trusted-source-input').checked = !!data.require_trusted_source;
     showStatus('Instellingen opgeslagen', false);
   }).catch(function(e) { showStatus(e.message, true); });
 }
