@@ -13,6 +13,7 @@ from pathlib import Path
 import random
 import requests
 
+import settings_store
 import tags_store
 
 
@@ -35,8 +36,28 @@ class WallhavenClient:
             "behance.net",
         ]
 
+        # Bekende bronnen van echte fotografie. Wordt altijd gebruikt om
+        # voorkeursresultaten naar voren te sorteren; als de instelling
+        # "require_trusted_source" aanstaat (via /ui) wordt dit bovendien een
+        # harde eis i.p.v. alleen een voorkeur - handig voor tags/stijlen die
+        # via de exclude-lijst niet te filteren blijken (niet elke CGI- of
+        # illustratie-afbeelding is als zodanig getagd op Wallhaven).
         self.preferred_sources = [
             "reddit.com/r/earthporn",
+            "reddit.com/r/natureisfuckinglit",
+            "reddit.com/r/waterporn",
+            "reddit.com/r/skyporn",
+            "reddit.com/r/spaceporn",
+            "reddit.com/r/mountains",
+            "reddit.com/r/landscapephotography",
+            "unsplash.com",
+            "flickr.com",
+            "500px.com",
+            "pexels.com",
+            "nasa.gov",
+            "apod.nasa.gov",
+            "wikimedia.org",
+            "nationalgeographic.com",
         ]
 
     def _source_blocked(self, source: str) -> bool:
@@ -85,6 +106,10 @@ class WallhavenClient:
         include_tags, exclude_tags = tags_store.get_tags()
         tag = random.choice(include_tags)
 
+        require_trusted_source = settings_store.get_settings().get(
+            "require_trusted_source", False
+        )
+
         params = {
             "apikey": self.api_key,
             "q": self._build_query(tag, exclude_tags),
@@ -111,6 +136,15 @@ class WallhavenClient:
             if self._source_blocked(source):
                 continue
 
+            preferred = self._source_preferred(source)
+
+            # Als "Alleen vertrouwde fotografiebronnen" aanstaat (/ui) is de
+            # voorkeurslijst geen voorkeur meer maar een harde eis - vangt
+            # illustraties/CGI die niet als zodanig getagd zijn, maar levert
+            # ook minder resultaten op (veel uploads hebben geen source-veld).
+            if require_trusted_source and not preferred:
+                continue
+
             # Portret (hoger dan breed) is ongeschikt als desktop/tv-achter-
             # grond, ongeacht de 'portrait'-tag (die gaat over de inhoud, niet
             # de orientatie). Bredere/vierkante afbeeldingen blijven wel goed.
@@ -124,7 +158,7 @@ class WallhavenClient:
                     "id": item["id"],
                     "url": path,
                     "extension": Path(path).suffix.lower().lstrip("."),
-                    "preferred": self._source_preferred(source),
+                    "preferred": preferred,
                 }
             )
 
