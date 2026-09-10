@@ -174,8 +174,11 @@ def run_cycle(client: WallhavenClient, conn, settings: dict, rotation_defaults: 
     needed = settings["max_wallpapers"] - db.count_active(conn)
 
     if needed > 0:
-        fill_wallpapers(client, conn, needed)
-
+        # 30 pogingen bleek te weinig: als er in 1 cyclus veel wallpapers
+        # tegelijk over de min_dwell-grens komen (en dus geroteerd worden),
+        # moet er in diezelfde cyclus ook genoeg ruimte zijn om ze meteen
+        # weer aan te vullen - anders daalt het actieve aantal per saldo.
+        fill_wallpapers(client, conn, needed, max_attempts=200)
     log(
         f"Cyclus klaar. Actieve wallpapers: {db.count_active(conn)}/{settings['max_wallpapers']} "
         f"(min_dwell={rotation['min_dwell_days']}d, max_retention={rotation['max_retention_days']}d)"
