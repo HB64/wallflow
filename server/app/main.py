@@ -23,6 +23,7 @@ DEFAULT_MAX_RETENTION_DAYS = 30   # vangnet: forceer rotatie als atime-detectie 
 DEFAULT_CHECK_INTERVAL_HOURS = 24  # laag houden i.v.m. netwerkbelasting
 DEFAULT_HTTP_PORT = 8080          # voor de screensaver-app (Android TV e.d.)
 ATIME_BUFFER_MINUTES = 5          # marge tegen ruis vlak na het downloaden
+SEARCH_DELAY_SECONDS = 1.5        # pauze tussen zoekopdrachten, tegen Wallhaven's rate limit
 
 
 def log(message: str):
@@ -111,7 +112,7 @@ def rotate_wallpaper(conn, wallhaven_id: str):
     log(f"Verwijderd: {row['filename']}")
 
 
-def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: int = 30):
+def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: int = 80):
     """Downloadt tot 'needed' nieuwe, nog niet eerder geziene wallpapers.
 
     Elke aanroep van search() gebruikt een nieuwe willekeurige tag, dus een
@@ -119,6 +120,11 @@ def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: in
     niet dat er niks meer te vinden is. Daarom bij een leeg resultaat gewoon
     doorgaan naar de volgende poging (nieuwe tag), in plaats van meteen
     stoppen.
+
+    Tussen elke zoekopdracht zit een korte pauze (SEARCH_DELAY_SECONDS) om
+    Wallhaven's rate limit te respecteren. Bij een 429 (rate limit bereikt)
+    stopt deze cyclus meteen i.p.v. door te blijven proberen - dat lost het
+    toch niet op en vult alleen het logbestand.
     """
     downloaded = 0
     attempt = 0
@@ -128,12 +134,27 @@ def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: in
 
         try:
             results = client.search(page=1)
-        except requests.RequestException as e:
-            log(f"Zoeken op Wallhaven mislukt (poging {attempt}): {e}")
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status == 429:
+                log(
+                    f"Wallhaven rate limit bereikt (poging {attempt}) - "
+                    "cyclus wordt hier gestopt, volgende poging bij de eerstvolgende cyclus."
+                )
+                break
+            # Bewust geen {e} loggen: de foutmelding van requests bevat de
+            # volledige request-URL inclusief de apikey.
+            log(f"Zoeken op Wallhaven mislukt (poging {attempt}): HTTP-fout (status {status})")
+            time.sleep(SEARCH_DELAY_SECONDS)
+            continue
+        except requests.RequestException:
+            log(f"Zoeken op Wallhaven mislukt (poging {attempt}): verbindingsfout")
+            time.sleep(SEARCH_DELAY_SECONDS)
             continue
 
         if not results:
             log(f"Geen (bruikbare) resultaten bij poging {attempt}, volgende tag proberen.")
+            time.sleep(SEARCH_DELAY_SECONDS)
             continue
 
         for wp in results:
@@ -148,8 +169,10 @@ def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: in
                 db.add_wallpaper(conn, wp["id"], path.name, wp["extension"])
                 downloaded += 1
                 log(f"Gedownload: {path.name}")
-            except requests.RequestException as e:
-                log(f"Download mislukt voor {wp['id']}: {e}")
+            except requests.RequestException:
+                log(f"Download mislukt voor {wp['id']}: verbindingsfout")
+
+        time.sleep(SEARCH_DELAY_SECONDS)
 
     return downloaded
 
@@ -174,11 +197,13 @@ def run_cycle(client: WallhavenClient, conn, settings: dict, rotation_defaults: 
     needed = settings["max_wallpapers"] - db.count_active(conn)
 
     if needed > 0:
-        # 30 pogingen bleek te weinig: als er in 1 cyclus veel wallpapers
-        # tegelijk over de min_dwell-grens komen (en dus geroteerd worden),
-        # moet er in diezelfde cyclus ook genoeg ruimte zijn om ze meteen
-        # weer aan te vullen - anders daalt het actieve aantal per saldo.
-        fill_wallpapers(client, conn, needed, max_attempts=200)
+        # Als er in 1 cyclus veel wallpapers tegelijk over de min_dwell-grens
+        # komen (en dus geroteerd worden), moet er in diezelfde cyclus ook
+        # genoeg ruimte zijn om ze weer aan te vullen - anders daalt het
+        # actieve aantal per saldo. 200 pogingen bleek te veel (rate limit),
+        # dus nu een lager aantal gecombineerd met een pauze tussen pogingen.
+        fill_wallpapers(client, conn, needed)
+
     log(
         f"Cyclus klaar. Actieve wallpapers: {db.count_active(conn)}/{settings['max_wallpapers']} "
         f"(min_dwell={rotation['min_dwell_days']}d, max_retention={rotation['max_retention_days']}d)"
