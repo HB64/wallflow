@@ -206,12 +206,35 @@ class WallFlowDreamService : DreamService() {
 
                 if (bitmap != null) {
                     mainHandler.post { crossfadeTo(bitmap) }
+                    reportSeen(filename)
                 } else {
                     Log.w(TAG, "Kon '$filename' niet decoderen als afbeelding.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Ophalen afbeelding '$filename' mislukt: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Meldt aan de server dat deze wallpaper daadwerkelijk als achtergrond getoond
+     * is (POST /wallpapers/<naam>/seen). Dit is de betrouwbare "bewust gezien"-
+     * graadmeter voor WallFlow's rotatielogica op de server, i.p.v. bestands-atime
+     * - die laatste wordt namelijk ook onterecht getriggerd door bijv. een Windows-
+     * diavoorstelling die het bestand periodiek leest zonder dat er echt naar
+     * gekeken wordt. Fire-and-forget: mislukt dit een keer (netwerkstoring), dan
+     * valt de server terug op het vangnet (max. bewaartermijn).
+     */
+    private fun reportSeen(filename: String) {
+        try {
+            val connection = URL("${baseUrl()}/wallpapers/$filename/seen").openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 10_000
+            connection.readTimeout = 10_000
+            val code = connection.responseCode
+            Log.i(TAG, "Gemeld als getoond: $filename (status $code)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Melden van 'getoond' voor '$filename' mislukt: ${e.message}")
         }
     }
 
