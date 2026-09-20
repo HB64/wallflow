@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from pathlib import Path
+import re
 import time
 import yaml
 import requests
@@ -7,6 +8,7 @@ import schedule
 
 import db
 import httpserver
+import settings_store
 from wallhaven import WallhavenClient
 
 CONFIG_FILE = "/config/config.yaml"
@@ -21,7 +23,16 @@ DEFAULT_MIN_DWELL_DAYS = 3        # bestand blijft altijd minimaal dit aantal da
 DEFAULT_MAX_RETENTION_DAYS = 30   # vangnet: forceer rotatie als atime-detectie niet blijkt te werken
 DEFAULT_CHECK_INTERVAL_HOURS = 24  # laag houden i.v.m. netwerkbelasting
 DEFAULT_HTTP_PORT = 8080          # voor de screensaver-app (Android TV e.d.)
-ATIME_BUFFER_MINUTES = 5          # marge tegen ruis vlak na het downloaden
+SEARCH_DELAY_SECONDS = 1.5        # pauze tussen zoekopdrachten, tegen Wallhaven's rate limit
+MAX_ROTATIONS_PER_CYCLE = 20      # begrenst de schade als aanvullen na een grote batch mislukt
+
+_APIKEY_PATTERN = re.compile(r"apikey=[^&\s]+")
+
+
+def _redact(message: str) -> str:
+    """Verwijdert de apikey-waarde uit een foutmelding, met behoud van de rest
+    (nuttig om te zien of het om een timeout, DNS-fout, etc. gaat)."""
+    return _APIKEY_PATTERN.sub("apikey=REDACTED", message)
 
 
 def log(message: str):
@@ -56,15 +67,22 @@ def check_rotation(conn, min_dwell_days: int, max_retention_days: int):
     Bepaalt welke wallpapers geroteerd (verwijderd + vervangen) mogen worden.
 
     Een wallpaper komt in aanmerking als:
-    - hij minstens min_dwell_days oud is (vangnet, ongeacht atime), EN
-    - de atime na de downloaddatum ligt (dus aantoonbaar geopend/getoond),
-      OF hij ouder is dan max_retention_days (vangnet als atime-tracking
-      niet blijkt te werken op deze share).
+    - hij minstens min_dwell_days oud is (vangnet, ongeacht "gezien"-status), EN
+    - de Android-app expliciet gemeld heeft dat hij daadwerkelijk als
+      achtergrond getoond is (last_shown_at, via POST /wallpapers/<naam>/seen),
+      OF hij ouder is dan max_retention_days (vangnet voor als de app een keer
+      niet meldt, bijv. screensaver stond uit).
+
+    Bewust GEEN gebruik meer van bestands-atime hiervoor: die wordt ook
+    aangeraakt door bijv. een Windows-diavoorstelling die het bestand
+    periodiek leest zonder dat er bewust naar gekeken wordt, wat tot te
+    snelle/onterechte rotatie leidde. last_known_atime wordt nog wel
+    bijgehouden (puur informatief), maar telt niet meer mee in deze
+    beslissing.
     """
     now = datetime.now()
     min_dwell = timedelta(days=min_dwell_days)
     max_retention = timedelta(days=max_retention_days)
-    atime_buffer = timedelta(minutes=ATIME_BUFFER_MINUTES)
 
     rotatable_ids = []
 
@@ -83,14 +101,17 @@ def check_rotation(conn, min_dwell_days: int, max_retention_days: int):
         if age < min_dwell:
             continue  # nog te vers, sowieso met rust laten
 
-        atime = datetime.fromtimestamp(file_path.stat().st_atime)
-        db.update_atime(conn, row["wallhaven_id"], atime.isoformat())
+        try:
+            atime = datetime.fromtimestamp(file_path.stat().st_atime)
+            db.update_atime(conn, row["wallhaven_id"], atime.isoformat())
+        except OSError:
+            pass  # puur informatief, geen kritiek pad
 
-        seen = atime > (downloaded_at + atime_buffer)
+        shown = row["last_shown_at"] is not None
         expired = age > max_retention
 
-        if seen or expired:
-            reason = "gezien (atime)" if seen else "max. bewaartermijn bereikt"
+        if shown or expired:
+            reason = "getoond in Android-app" if shown else "max. bewaartermijn bereikt"
             log(f"Wallpaper {row['filename']} komt in aanmerking voor rotatie ({reason})")
             rotatable_ids.append(row["wallhaven_id"])
 
@@ -110,7 +131,7 @@ def rotate_wallpaper(conn, wallhaven_id: str):
     log(f"Verwijderd: {row['filename']}")
 
 
-def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: int = 30):
+def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: int = 80):
     """Downloadt tot 'needed' nieuwe, nog niet eerder geziene wallpapers.
 
     Elke aanroep van search() gebruikt een nieuwe willekeurige tag, dus een
@@ -118,6 +139,11 @@ def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: in
     niet dat er niks meer te vinden is. Daarom bij een leeg resultaat gewoon
     doorgaan naar de volgende poging (nieuwe tag), in plaats van meteen
     stoppen.
+
+    Tussen elke zoekopdracht zit een korte pauze (SEARCH_DELAY_SECONDS) om
+    Wallhaven's rate limit te respecteren. Bij een 429 (rate limit bereikt)
+    stopt deze cyclus meteen i.p.v. door te blijven proberen - dat lost het
+    toch niet op en vult alleen het logbestand.
     """
     downloaded = 0
     attempt = 0
@@ -127,12 +153,27 @@ def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: in
 
         try:
             results = client.search(page=1)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status == 429:
+                log(
+                    f"Wallhaven rate limit bereikt (poging {attempt}) - "
+                    "cyclus wordt hier gestopt, volgende poging bij de eerstvolgende cyclus."
+                )
+                break
+            # Bewust geen {e} loggen: de foutmelding van requests bevat de
+            # volledige request-URL inclusief de apikey.
+            log(f"Zoeken op Wallhaven mislukt (poging {attempt}): HTTP-fout (status {status})")
+            time.sleep(SEARCH_DELAY_SECONDS)
+            continue
         except requests.RequestException as e:
-            log(f"Zoeken op Wallhaven mislukt (poging {attempt}): {e}")
+            log(f"Zoeken op Wallhaven mislukt (poging {attempt}): {type(e).__name__} - {_redact(str(e))}")
+            time.sleep(SEARCH_DELAY_SECONDS)
             continue
 
         if not results:
             log(f"Geen (bruikbare) resultaten bij poging {attempt}, volgende tag proberen.")
+            time.sleep(SEARCH_DELAY_SECONDS)
             continue
 
         for wp in results:
@@ -148,19 +189,42 @@ def fill_wallpapers(client: WallhavenClient, conn, needed: int, max_attempts: in
                 downloaded += 1
                 log(f"Gedownload: {path.name}")
             except requests.RequestException as e:
-                log(f"Download mislukt voor {wp['id']}: {e}")
+                log(f"Download mislukt voor {wp['id']}: {type(e).__name__} - {e}")
+
+        time.sleep(SEARCH_DELAY_SECONDS)
 
     return downloaded
 
 
-def run_cycle(client: WallhavenClient, conn, settings: dict):
+def run_cycle(client: WallhavenClient, conn, settings: dict, rotation_defaults: dict):
     log("Rotatiecyclus gestart.")
+
+    # Als Wallhaven nu niet bereikbaar is, dan heeft rotatie geen zin: er kan
+    # toch niks aangevuld worden. Liever de hele cyclus overslaan dan
+    # wallpapers verwijderen die niet vervangen kunnen worden - dat is precies
+    # wat er misging tijdens een Wallhaven-storing (78 -> 34 in 1 cyclus).
+    if not client.test_connection():
+        log("Wallhaven niet bereikbaar - cyclus overgeslagen (geen rotatie, geen downloadpogingen).")
+        return
+
+    # Bij elke cyclus vers inlezen (i.p.v. de waarden van bij het opstarten),
+    # zodat een wijziging via /ui direct bij de eerstvolgende cyclus actief
+    # is, zonder herstart van de container.
+    rotation = settings_store.get_settings(rotation_defaults)
 
     rotatable = check_rotation(
         conn,
-        min_dwell_days=settings["min_dwell_days"],
-        max_retention_days=settings["max_retention_days"],
+        min_dwell_days=rotation["min_dwell_days"],
+        max_retention_days=rotation["max_retention_days"],
     )
+
+    if len(rotatable) > MAX_ROTATIONS_PER_CYCLE:
+        log(
+            f"{len(rotatable)} wallpapers komen in aanmerking voor rotatie, maar per cyclus "
+            f"worden er max. {MAX_ROTATIONS_PER_CYCLE} verwijderd (de rest volgt een volgende "
+            "cyclus) - beperkt de schade als het aanvullen hierna alsnog misloopt."
+        )
+        rotatable = rotatable[:MAX_ROTATIONS_PER_CYCLE]
 
     for wallhaven_id in rotatable:
         rotate_wallpaper(conn, wallhaven_id)
@@ -168,15 +232,23 @@ def run_cycle(client: WallhavenClient, conn, settings: dict):
     needed = settings["max_wallpapers"] - db.count_active(conn)
 
     if needed > 0:
+        # Als er in 1 cyclus veel wallpapers tegelijk over de min_dwell-grens
+        # komen (en dus geroteerd worden), moet er in diezelfde cyclus ook
+        # genoeg ruimte zijn om ze weer aan te vullen - anders daalt het
+        # actieve aantal per saldo. 200 pogingen bleek te veel (rate limit),
+        # dus nu een lager aantal gecombineerd met een pauze tussen pogingen.
         fill_wallpapers(client, conn, needed)
 
-    log(f"Cyclus klaar. Actieve wallpapers: {db.count_active(conn)}/{settings['max_wallpapers']}")
+    log(
+        f"Cyclus klaar. Actieve wallpapers: {db.count_active(conn)}/{settings['max_wallpapers']} "
+        f"(min_dwell={rotation['min_dwell_days']}d, max_retention={rotation['max_retention_days']}d)"
+    )
 
 
-def scheduled_job(client: WallhavenClient, conn, settings: dict):
+def scheduled_job(client: WallhavenClient, conn, settings: dict, rotation_defaults: dict):
     """Wrapper rond run_cycle die de scheduler blijft draaien, ook na een fout."""
     try:
-        run_cycle(client, conn, settings)
+        run_cycle(client, conn, settings, rotation_defaults)
     except Exception as e:
         log(f"Onverwachte fout tijdens cyclus: {e}")
 
@@ -194,12 +266,22 @@ if __name__ == "__main__":
         "http_port": wallflow_config.get("http_port", DEFAULT_HTTP_PORT),
     }
 
+    # Startwaarden voor min_dwell_days/max_retention_days komen uit
+    # config.yaml. Ze worden meteen weggeschreven naar settings.json (als dat
+    # nog niet bestaat), zodat het gedrag bij deze upgrade niet verandert -
+    # pas een wijziging via /ui wijkt daarna af van config.yaml.
+    rotation_defaults = {
+        "min_dwell_days": settings["min_dwell_days"],
+        "max_retention_days": settings["max_retention_days"],
+    }
+    settings_store.get_settings(rotation_defaults)
+
     log("========================================")
     log("WallFlow starting...")
     log("Configuration loaded.")
 
     WALLPAPER_DIR.mkdir(parents=True, exist_ok=True)
-    httpserver.start_server(WALLPAPER_DIR, port=settings["http_port"])
+    httpserver.start_server(WALLPAPER_DIR, port=settings["http_port"], rotation_defaults=rotation_defaults)
     log(f"HTTP-server gestart op poort {settings['http_port']} (/wallpapers).")
 
     client = WallhavenClient(
@@ -217,10 +299,10 @@ if __name__ == "__main__":
         log(f"Actief volgens database: {db.count_active(conn)}/{settings['max_wallpapers']}")
 
         # Direct 1 cyclus bij opstarten, daarna periodiek.
-        scheduled_job(client, conn, settings)
+        scheduled_job(client, conn, settings, rotation_defaults)
 
         schedule.every(settings["check_interval_hours"]).hours.do(
-            scheduled_job, client, conn, settings
+            scheduled_job, client, conn, settings, rotation_defaults
         )
 
         log(f"Volgende checks elke {settings['check_interval_hours']} uur.")
