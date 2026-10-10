@@ -106,9 +106,9 @@ class WallhavenClient:
         include_tags, exclude_tags = tags_store.get_tags()
         tag = random.choice(include_tags)
 
-        require_trusted_source = settings_store.get_settings().get(
-            "require_trusted_source", False
-        )
+        current_settings = settings_store.get_settings()
+        require_trusted_source = current_settings.get("require_trusted_source", False)
+        min_favorites = current_settings.get("min_favorites", 0)
 
         params = {
             "apikey": self.api_key,
@@ -143,6 +143,11 @@ class WallhavenClient:
             # illustraties/CGI die niet als zodanig getagd zijn, maar levert
             # ook minder resultaten op (veel uploads hebben geen source-veld).
             if require_trusted_source and not preferred:
+                continue
+
+            # Populariteitsdrempel (instelbaar via /ui): weinig favorieten is
+            # vaak een teken van rommel, composieten of onbekende uploads.
+            if item.get("favorites", 0) < min_favorites:
                 continue
 
             # Portret (hoger dan breed) is ongeschikt als desktop/tv-achter-

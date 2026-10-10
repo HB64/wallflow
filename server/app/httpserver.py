@@ -27,7 +27,7 @@ Endpoints:
   rebuild of herstart van de container nodig.
 
 - GET    /settings  -> {"min_dwell_days": N, "max_retention_days": M,
-  "require_trusted_source": bool}
+  "require_trusted_source": bool, "min_favorites": F}
 - POST   /settings  -> body met 1 of meer velden, werkt bij. Direct actief
   bij de eerstvolgende rotatiecyclus/zoekopdracht, geen herstart nodig.
 
@@ -144,6 +144,10 @@ UI_HTML = """<!DOCTYPE html>
     <label for="max-retention-input">Max. bewaartijd (dagen)</label>
     <input type="number" id="max-retention-input" min="1" max="365">
   </div>
+  <div class="settings-field">
+    <label for="min-favorites-input">Min. favorieten (0 = uit)</label>
+    <input type="number" id="min-favorites-input" min="0" max="10000">
+  </div>
   <div class="settings-field settings-checkbox">
     <label for="trusted-source-input">
       <input type="checkbox" id="trusted-source-input">
@@ -224,6 +228,7 @@ function loadSettings() {
   fetch('/settings').then(function(r) { return r.json(); }).then(function(data) {
     document.getElementById('min-dwell-input').value = data.min_dwell_days;
     document.getElementById('max-retention-input').value = data.max_retention_days;
+    document.getElementById('min-favorites-input').value = data.min_favorites;
     document.getElementById('trusted-source-input').checked = !!data.require_trusted_source;
   });
 }
@@ -232,6 +237,7 @@ function saveSettings() {
   var payload = {
     min_dwell_days: parseInt(document.getElementById('min-dwell-input').value, 10),
     max_retention_days: parseInt(document.getElementById('max-retention-input').value, 10),
+    min_favorites: parseInt(document.getElementById('min-favorites-input').value, 10),
     require_trusted_source: document.getElementById('trusted-source-input').checked
   };
   fetch('/settings', {
@@ -244,6 +250,7 @@ function saveSettings() {
   }).then(function(data) {
     document.getElementById('min-dwell-input').value = data.min_dwell_days;
     document.getElementById('max-retention-input').value = data.max_retention_days;
+    document.getElementById('min-favorites-input').value = data.min_favorites;
     document.getElementById('trusted-source-input').checked = !!data.require_trusted_source;
     showStatus('Instellingen opgeslagen', false);
   }).catch(function(e) { showStatus(e.message, true); });

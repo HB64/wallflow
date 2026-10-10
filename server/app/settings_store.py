@@ -33,6 +33,9 @@ FIELDS = {
     "min_dwell_days": {"type": "int", "min": 1, "max": 90, "default": 3},
     "max_retention_days": {"type": "int", "min": 1, "max": 365, "default": 30},
     "require_trusted_source": {"type": "bool", "default": False},
+    # Minimum aantal favorieten op Wallhaven. 0 = uit. Echte, mooie foto's
+    # krijgen meestal veel favorieten; rommel en composieten weinig.
+    "min_favorites": {"type": "int", "min": 0, "max": 10000, "default": 0},
 }
 
 
